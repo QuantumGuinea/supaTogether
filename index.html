@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>이미지 속 동물 정보 추출기</title>
+  </head>
+  <body>
+    <h1>이미지 속 동물 정보 추출기</h1>
+    <p>이미지를 선택한 후 "제출" 버튼을 눌러주세요.</p>
+    <div>
+      최종적으로 추출된 데이터 값은 개발자도구(F12)에서 확인해주세요! 😀
+    </div>
+    <input type="file" id="imageInput" accept="image/*" />
+    <button id="submitBtn">제출</button>
+    <div id="result"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
