@@ -1,16 +1,18 @@
 // ---------------------------
 // Together & GROQ API 설정 (실제 값으로 대체)
 // ---------------------------
-const TOGETHER_API_KEY = "";
-const GROQ_API_KEY = "";
-const TOGETHER_API_ENDPOINT = "";
-const GROQ_API_ENDPOINT = "";
+// 📌
+const TOGETHER_API_KEY = "tgp_v1_w7nHHyGgN-eazFiTmmMwUw_vpva4Qfl2T4EE7JJfWVs";
+const GROQ_API_KEY = "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";
+const TOGETHER_API_ENDPOINT = "https://api.together.xyz/v1/chat/completions";
+const GROQ_API_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 // ---------------------------
 // Supabase 설정 (실제 값으로 대체)
 // ---------------------------
-const supabaseUrl = "";
-const supabaseAnonKey = "";
+// 📌
+const supabaseUrl = "https://plpkyqiigxrwvzzhngln.supabase.co";
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBscGt5cWlpZ3hyd3Z6emhuZ2xuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkyMzY1MDUsImV4cCI6MjA1NDgxMjUwNX0.mFb7K_FplAt_zaaROgqRqEGQ6cVPJGtva1W8XzyVGmg";
 const supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
 
 // ---------------------------
@@ -19,13 +21,13 @@ async function uploadImageToSupabase(file, folder) {
   // 고유 파일 이름 생성 (타임스탬프 사용)
   const fileName = `${folder}/${Date.now()}_${file.name}`;
   const { data, error } = await supabaseClient.storage
-    .from("my-bucket") // 단일 버킷 이름
+    .from("my-bucket/groqTogether") // 단일 버킷 이름
     .upload(fileName, file);
   if (error) {
     throw error;
   }
   const { data: urlData, error: urlError } = supabaseClient.storage
-    .from("my-bucket")
+    .from("my-bucket/groqTogether")
     .getPublicUrl(fileName);
   if (urlError) {
     throw urlError;
@@ -52,9 +54,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     selectedApi === "groq" ? GROQ_API_ENDPOINT : TOGETHER_API_ENDPOINT;
   const apiKey = selectedApi === "groq" ? GROQ_API_KEY : TOGETHER_API_KEY;
 
-  // 버킷 선택: Together -> "my-bucket/supaTogether", GROQ -> "llama-bucket/supaGROQ"
+  // 버킷 선택: Together -> "my-bucket/groqTogether", GROQ -> "llama-bucket/supaGROQ"
   const bucket =
-    selectedApi === "groq" ? "llama-bucket/supaGROQ" : "my-bucket/supaTogether";
+    selectedApi === "groq" ? "llama-bucket/supaGROQ" : "my-bucket/groqTogether";
 
   const file = fileInput.files[0];
   resultDiv.innerText = "이미지 업로드 중입니다...";

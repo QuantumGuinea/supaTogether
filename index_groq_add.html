@@ -4,25 +4,282 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>이미지 속 동물 정보 추출기</title>
+    <!-- Supabase JS 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
   <body>
-    <!-- API 선택 UI (HTML 부분) -->
-    <label for="apiSelector">사용할 API 선택:</label>
-    <select id="apiSelector">
-      <option value="together">Together API</option>
-      <option value="groq">GROQ API</option>
-    </select>
-
     <h1>이미지 속 동물 정보 추출기</h1>
     <p>이미지를 선택한 후 "제출" 버튼을 눌러주세요.</p>
-    <div>
-      최종적으로 추출된 데이터 값은 개발자도구(F12)에서 확인해주세요! 😀
-    </div>
+    <div>최종적으로 추출된 데이터 값은 개발자도구(F12)에서 확인해주세요! 😀</div>
     <input type="file" id="imageInput" accept="image/*" />
     <button id="submitBtn">제출</button>
     <div id="result"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js"></script>
+    <!-- 간단 uuidv4 생성 함수 -->
+    <script>
+      function uuidv4() {
+        return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+          (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+        );
+      }
+    </script>
+
+    <script>
+      // ---------------------------
+      // API 및 Supabase 설정 (실제 값으로 대체)
+      // ---------------------------
+      const TOGETHER_API_KEY = ""; // Together API 키
+      const GROQ_API_KEY = ""; // GROQ API 키
+      const TOGETHER_API_ENDPOINT = "https://api.together.xyz/v1/chat/completions";
+      const GROQ_API_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+
+      // Supabase 설정 (실제 값으로 대체)
+      const supabaseUrl = "https://plpkyqiigxrwvzzhngln.supabase.co"; // 예: https://abc123.supabase.co
+      const supabaseAnonKey = ""; // Supabase anon 키
+      const supabaseBucket = "my-bucket/groqTogether"; // Supabase bucket 이름 (완전 공개여야 함)
+      const supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+
+      // ---------------------------
+      // (선택적) 사용자 권한 확인
+      // ---------------------------
+      async function checkUserPermission() {
+        // 예시: 단순 GET 요청 (필요에 따라 수정)
+        const response = await fetch(`${supabaseUrl}/rest/v1/MY_USER`, {
+          method: "GET",
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!response.ok) {
+          throw new Error("권한 확인 실패");
+        }
+        return await response.json();
+      }
+
+      // ---------------------------
+      // Supabase에 이미지 업로드 (public bucket 사용)
+      // ---------------------------
+      async function uploadImageToSupabase(file) {
+        const filename = `${uuidv4()}_${file.name}`;
+        const { data, error } = await supabaseClient.storage
+          .from(supabaseBucket)
+          .upload(filename, file, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        if (error) throw error;
+        // Supabase의 공개 CDN URL (토큰 없이 접근 가능)
+        const publicUrl = `${supabaseUrl}/storage/v1/object/public/${supabaseBucket}/${data.path}`;
+        return publicUrl;
+      }
+
+      // ---------------------------
+      // API 응답에서 JSON 부분 추출 및 안전한 파싱
+      // ---------------------------
+      function extractJSON(responseText) {
+        const firstBrace = responseText.indexOf("{");
+        const lastBrace = responseText.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          return responseText.substring(firstBrace, lastBrace + 1);
+        }
+        return responseText;
+      }
+      function safeJSONParse(text) {
+        if (text.trim().startsWith("{")) {
+          try {
+            return JSON.parse(text);
+          } catch (e) {
+            console.error("JSON 파싱 실패:", e);
+          }
+        }
+        return text;
+      }
+
+      // ---------------------------
+      // 여러 API 결과를 합의하여 최종 결과 도출
+      // ---------------------------
+      function aggregateResults(results) {
+        const keys = [
+          "species",
+          "size",
+          "weight",
+          "is_predator",
+          "is_allowed_in_public",
+        ];
+        const aggregated = {};
+        keys.forEach((key) => {
+          const freq = {};
+          results.forEach((result) => {
+            if (result && result[key] !== undefined && result[key] !== "") {
+              const value = result[key];
+              freq[value] = (freq[value] || 0) + 1;
+            }
+          });
+          let maxCount = 0;
+          let candidate = null;
+          for (const value in freq) {
+            if (freq[value] > maxCount) {
+              maxCount = freq[value];
+              candidate = value;
+            }
+          }
+          aggregated[key] = candidate;
+        });
+        return aggregated;
+      }
+
+      // ---------------------------
+      // 이미지 업로드 후 각 API 호출
+      // ---------------------------
+      document.getElementById("submitBtn").addEventListener("click", async () => {
+        const fileInput = document.getElementById("imageInput");
+        const resultDiv = document.getElementById("result");
+
+        if (fileInput.files.length === 0) {
+          alert("이미지를 선택해주세요.");
+          return;
+        }
+
+        resultDiv.innerText = "권한 확인 중입니다...";
+        try {
+          await checkUserPermission();
+          console.log("권한 확인 완료");
+
+          const file = fileInput.files[0];
+          resultDiv.innerText = "이미지 업로드 중입니다...";
+          const imageUrl = await uploadImageToSupabase(file);
+          console.log("업로드된 이미지 공개 URL:", imageUrl);
+          if (!imageUrl) {
+            throw new Error("이미지 공개 URL이 생성되지 않았습니다.");
+          }
+
+          // supabaseAnonKey를 쿼리 파라미터로 추가하여, 각 API가 이를 사용할 수 있도록 함
+          const imageUrlWithKey = `${imageUrl}?apikey=${supabaseAnonKey}`;
+          
+          // 프롬프트 메시지 구성
+          const baseMessage = `
+IMAGE_URL: ${imageUrl}
+supabaseAnonKey : ${supabaseAnonKey}
+key를 써서 url에 접속 가능여부를 알려주고, 접속이 가능하다면 이미지의 내용 인식 가능 여부를 알려줘`;
+
+          const messages = [{ role: "user", content: baseMessage }];
+
+          // 각 API 요청 본문 구성
+          const requestBodyTogether = {
+            model: "meta-llama/Llama-Vision-Free",
+            messages: messages,
+            max_tokens: 512,
+            temperature: 0.7,
+            top_p: 0.7,
+            top_k: 50,
+            repetition_penalty: 1,
+            stop: ["<|eot|>", "<|eom_id|>"],
+            stream: false,
+          };
+
+          const requestBodyGroq90b = {
+            model: "llama-3.2-90b-vision-preview",
+            messages: messages,
+            max_tokens: 512,
+            temperature: 0.7,
+            stop: ["<|eot|>", "<|eom_id|>"],
+            stream: false,
+          };
+
+          const requestBodyGroq11b = {
+            model: "llama-3.2-11b-vision-preview",
+            messages: messages,
+            max_tokens: 512,
+            temperature: 0.7,
+            stop: ["<|eot|>", "<|eom_id|>"],
+            stream: false,
+          };
+
+          resultDiv.innerText = "이미지 업로드 완료!\n\n세 API 처리 중입니다...";
+
+          // 세 API를 동시에 호출
+          const [togetherResponse, groq90bResponse, groq11bResponse] = await Promise.all([
+            fetch(TOGETHER_API_ENDPOINT, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${TOGETHER_API_KEY}`,
+              },
+              body: JSON.stringify(requestBodyTogether),
+            }),
+            fetch(GROQ_API_ENDPOINT, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${GROQ_API_KEY}`,
+              },
+              body: JSON.stringify(requestBodyGroq90b),
+            }),
+            fetch(GROQ_API_ENDPOINT, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${GROQ_API_KEY}`,
+              },
+              body: JSON.stringify(requestBodyGroq11b),
+            }),
+          ]);
+
+          // 에러 체크
+          if (!togetherResponse.ok) {
+            const errorData = await togetherResponse.json();
+            throw new Error(`Together API HTTP 에러: ${togetherResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+          if (!groq90bResponse.ok) {
+            const errorData = await groq90bResponse.json();
+            throw new Error(`GROQ 90b API HTTP 에러: ${groq90bResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+          if (!groq11bResponse.ok) {
+            const errorData = await groq11bResponse.json();
+            throw new Error(`GROQ 11b API HTTP 에러: ${groq11bResponse.status} - ${JSON.stringify(errorData)}`);
+          }
+
+          const togetherData = await togetherResponse.json();
+          const groq90bData = await groq90bResponse.json();
+          const groq11bData = await groq11bResponse.json();
+
+          let togetherOutput = togetherData?.choices?.[0]?.message?.content || JSON.stringify(togetherData, null, 2);
+          let groq90bOutput = groq90bData?.choices?.[0]?.message?.content || JSON.stringify(groq90bData, null, 2);
+          let groq11bOutput = groq11bData?.choices?.[0]?.message?.content || JSON.stringify(groq11bData, null, 2);
+
+          const togetherJsonText = extractJSON(togetherOutput);
+          const groq90bJsonText = extractJSON(groq90bOutput);
+          const groq11bJsonText = extractJSON(groq11bOutput);
+
+          const togetherResult = safeJSONParse(togetherJsonText);
+          const groq90bResult = safeJSONParse(groq90bJsonText);
+          const groq11bResult = safeJSONParse(groq11bJsonText);
+
+          resultDiv.innerHTML = `
+            <h2>Together API 결과</h2>
+            <pre>${JSON.stringify(togetherResult, null, 2)}</pre>
+            <h2>GROQ 90b API 결과</h2>
+            <pre>${JSON.stringify(groq90bResult, null, 2)}</pre>
+            <h2>GROQ 11b API 결과</h2>
+            <pre>${JSON.stringify(groq11bResult, null, 2)}</pre>
+          `;
+
+          const finalAggregatedResult = aggregateResults([togetherResult, groq90bResult, groq11bResult]);
+          console.log("최종 합의 결과:", finalAggregatedResult);
+
+          const finalResultDiv = document.createElement("div");
+          finalResultDiv.innerHTML = `
+            <h2>최종 합의 결과 (finalAggregatedResult)</h2>
+            <pre>${JSON.stringify(finalAggregatedResult, null, 2)}</pre>
+          `;
+          resultDiv.appendChild(finalResultDiv);
+        } catch (error) {
+          console.error(error);
+          resultDiv.innerText = "에러 발생: " + error.message;
+        }
+      });
+    </script>
   </body>
 </html>
